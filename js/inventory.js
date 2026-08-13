@@ -15,26 +15,221 @@ const EQUIP_SLOTS = [
   "ring2",
 ];
 
+const ARMOR_PIECES = [
+  { key: "Helmet", slot: "helmet", label: "Helmet" },
+  { key: "Shirt", slot: "shirt", label: "Shirt" },
+  { key: "Pants", slot: "pants", label: "Pants" },
+  { key: "Boots", slot: "boots", label: "Boots" },
+];
+
+const ARMOR_TIERS = [
+  { key: "leather", name: "Leather", armor: 1 },
+  { key: "copper", name: "Copper", armor: 2 },
+  { key: "iron", name: "Iron", armor: 3 },
+  { key: "platinum", name: "Platinum", armor: 4 },
+];
+
+const ARMOR_PRICES = {
+  leather: { Helmet: 6, Shirt: 10, Pants: 9, Boots: 6 },
+  copper: { Helmet: 12, Shirt: 20, Pants: 18, Boots: 12 },
+  iron: { Helmet: 22, Shirt: 36, Pants: 32, Boots: 22 },
+  platinum: { Helmet: 45, Shirt: 70, Pants: 60, Boots: 45 },
+};
+
 const ITEM_DEFS = {
   apple: { name: "Apple", cat: "food", slot: null, stack: 20, icon: "itemApple" },
   potion: { name: "Potion", cat: "food", slot: null, stack: 10, icon: "itemPotion" },
   rope: { name: "Rope", cat: "tool", slot: null, stack: 20, icon: "itemRope" },
-  sword: { name: "Iron Sword", cat: "equip", slot: "weapon", stack: 1, icon: "itemSword" },
-  shield: { name: "Wooden Shield", cat: "equip", slot: "weapon", stack: 1, icon: "itemShield" },
+  sword: { name: "Iron Sword", cat: "equip", slot: "weapon", stack: 1, attack: 4, icon: "itemSword" },
+  shield: { name: "Wooden Shield", cat: "equip", slot: "weapon", stack: 1, attack: 2, icon: "itemShield" },
   pickaxe: { name: "Pickaxe", cat: "tool", slot: null, stack: 1, icon: "itemPickaxe" },
 };
+
+ARMOR_TIERS.forEach((tier) => {
+  ARMOR_PIECES.forEach((piece) => {
+    ITEM_DEFS[tier.key + piece.key] = {
+      name: tier.name + " " + piece.label,
+      cat: "equip",
+      slot: piece.slot,
+      stack: 1,
+      armor: tier.armor,
+      icon: "item" + tier.name + piece.key,
+    };
+  });
+});
+
+function armorStock(tierKey) {
+  const tier = ARMOR_TIERS.find((entry) => entry.key === tierKey);
+  return ARMOR_PIECES.map((piece) => ({
+    id: tier.key + piece.key,
+    price: ARMOR_PRICES[tierKey][piece.key],
+  }));
+}
 
 const GENERAL_STOCK = [
   { id: "apple", price: 3 },
   { id: "potion", price: 8 },
   { id: "rope", price: 5 },
-];
+].concat(armorStock("leather"));
 
 const FORGE_STOCK = [
   { id: "sword", price: 12 },
   { id: "shield", price: 10 },
   { id: "pickaxe", price: 15 },
-];
+]
+  .concat(armorStock("copper"))
+  .concat(armorStock("iron"))
+  .concat(armorStock("platinum"));
+
+function armorTotal() {
+  let total = 0;
+  ["helmet", "shirt", "pants", "boots"].forEach((slot) => {
+    const worn = save.equips[slot];
+    if (!worn || !ITEM_DEFS[worn.id] || !ITEM_DEFS[worn.id].armor) {
+      return;
+    }
+    total += ITEM_DEFS[worn.id].armor;
+  });
+  return total;
+}
+
+function xpToNext(level) {
+  return 12 + (level - 1) * 10;
+}
+
+function heroLevel() {
+  return Math.max(1, Math.min(20, Math.floor(Number(save.level) || 1)));
+}
+
+function heroMaxHp() {
+  return 2 + heroLevel() + Math.round(armorTotal() / 4);
+}
+
+function totalAttack() {
+  return Math.max(1, heroLevel() + weaponAttack() - 1);
+}
+
+function totalArmor() {
+  return armorTotal() + Math.floor((heroLevel() - 1) / 2);
+}
+
+function moveSpeed() {
+  return MOVE_SPEED + (heroLevel() - 1) * 6;
+}
+
+function armorMaxHp() {
+  return heroMaxHp();
+}
+
+function equippedDef(slot) {
+  const worn = save.equips[slot];
+  if (!worn || !ITEM_DEFS[worn.id]) {
+    return null;
+  }
+  return ITEM_DEFS[worn.id];
+}
+
+function weaponAttack() {
+  const def = equippedDef("weapon");
+  if (def && def.attack) {
+    return def.attack;
+  }
+  return 1;
+}
+
+function characterStats() {
+  const weapon = equippedDef("weapon");
+  const hp = player ? player.hp : heroMaxHp();
+  const maxHp = player ? player.maxHp : heroMaxHp();
+  const level = heroLevel();
+  const next = xpToNext(level);
+  const xp = level >= 20 ? next : Math.max(0, Math.floor(Number(save.xp) || 0));
+  return {
+    title: save.gender === "female" ? "Female" : "Male",
+    hp: hp,
+    maxHp: maxHp,
+    rows: [
+      { label: "Level", value: String(level) },
+      { label: "XP", value: level >= 20 ? "MAX" : xp + " / " + next },
+      { label: "Health", value: hp + " / " + maxHp },
+      { label: "Armor", value: String(totalArmor()) },
+      { label: "Attack", value: String(totalAttack()) },
+      { label: "Weapon", value: weapon ? weapon.name : "Unarmed" },
+    ],
+  };
+}
+
+function gainXp(amount) {
+  save.level = heroLevel();
+  save.xp = Math.max(0, Math.floor(Number(save.xp) || 0));
+  if (save.level >= 20 || amount <= 0) {
+    return 0;
+  }
+  save.xp += amount;
+  let ups = 0;
+  while (save.level < 20 && save.xp >= xpToNext(save.level)) {
+    save.xp -= xpToNext(save.level);
+    save.level += 1;
+    ups += 1;
+  }
+  if (save.level >= 20) {
+    save.xp = 0;
+  }
+  if (ups) {
+    syncPlayerArmor(true);
+    if (typeof player !== "undefined" && player) {
+      player.levelFlash = 2.2;
+    }
+  }
+  return ups;
+}
+
+function countItem(id) {
+  let total = 0;
+  save.packs.forEach((grid) => {
+    grid.forEach((slot) => {
+      if (slot && slot.id === id) {
+        total += slot.count;
+      }
+    });
+  });
+  return total;
+}
+
+function takeItemFromPack(id, count) {
+  let need = count;
+  save.packs.forEach((grid) => {
+    grid.forEach((slot, index) => {
+      if (need <= 0 || !slot || slot.id !== id) {
+        return;
+      }
+      const take = Math.min(need, slot.count);
+      slot.count -= take;
+      need -= take;
+      if (slot.count <= 0) {
+        grid[index] = null;
+      }
+    });
+  });
+  return need <= 0;
+}
+
+function syncPlayerArmor(fill) {
+  if (typeof player === "undefined" || !player) {
+    return;
+  }
+  const oldMax = player.maxHp || 1;
+  const maxHp = heroMaxHp();
+  player.maxHp = maxHp;
+  if (fill || player.hp == null) {
+    player.hp = maxHp;
+    return;
+  }
+  if (maxHp > oldMax) {
+    player.hp += maxHp - oldMax;
+  }
+  player.hp = Math.max(0, Math.min(maxHp, player.hp));
+}
 
 function emptyGrid(size) {
   const grid = [];
@@ -59,14 +254,19 @@ function emptySave() {
   for (let i = 0; i < CHEST_PAGES; i += 1) {
     chests.push(emptyGrid(CHEST_SIZE));
   }
+  packs[0][0] = { id: "rope", count: 3 };
+  equips.weapon = { id: "sword", count: 1 };
   return {
     gender: null,
-    coins: 8,
+    coins: 12,
     packs: packs,
     packPage: 0,
     chests: chests,
     chestPage: 0,
     equips: equips,
+    level: 1,
+    xp: 0,
+    placedRopes: [],
   };
 }
 
@@ -118,6 +318,24 @@ function normalizeSave(raw) {
       next.equips[slot] = slotFromRaw(raw.equips[slot]);
     });
   }
+  const level = Math.floor(Number(raw.level) || 1);
+  next.level = Math.max(1, Math.min(20, Number.isFinite(level) ? level : 1));
+  const xp = Math.floor(Number(raw.xp) || 0);
+  next.xp = Number.isFinite(xp) && xp >= 0 ? xp : 0;
+  if (Array.isArray(raw.placedRopes)) {
+    next.placedRopes = raw.placedRopes
+      .map((rope) => {
+        const x = Number(rope && rope.x);
+        const y = Number(rope && rope.y);
+        const w = Number(rope && rope.w);
+        const h = Number(rope && rope.h);
+        if (![x, y, w, h].every(Number.isFinite) || h < 24) {
+          return null;
+        }
+        return { x: x, y: y, w: w, h: h };
+      })
+      .filter((rope) => rope);
+  }
   return next;
 }
 
@@ -156,6 +374,15 @@ function writeStoredSave(payload) {
 
 function itemName(id) {
   return ITEM_DEFS[id] ? ITEM_DEFS[id].name : id;
+}
+
+function consumeFood(id) {
+  if (id === "potion" && typeof player !== "undefined" && player && player.hp < player.maxHp) {
+    const heal = 1 + Math.floor(heroLevel() / 4);
+    player.hp = Math.min(player.maxHp, player.hp + heal);
+    return "Drank a potion. +" + heal + " heart" + (heal > 1 ? "s" : "") + ".";
+  }
+  return "Ate " + itemName(id) + ".";
 }
 
 function currentPack() {
@@ -333,6 +560,7 @@ function tryEquipFromPack(index) {
   if (worn) {
     addToPack(worn.id, worn.count || 1);
   }
+  syncPlayerArmor(false);
   return "Equipped " + itemName(save.equips[def.slot].id) + ".";
 }
 
@@ -379,5 +607,6 @@ function unequipToPack(slotName) {
     return "Pack is full.";
   }
   save.equips[slotName] = null;
+  syncPlayerArmor(false);
   return "Unequipped " + itemName(worn.id) + ".";
 }

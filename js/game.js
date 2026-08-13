@@ -8,13 +8,13 @@ ctx.imageSmoothingEnabled = true;
 const input = {
   left: false,
   right: false,
-  jumpPressed: false,
-  jumpHeld: false,
+  up: false,
+  down: false,
+  attackPressed: false,
+  attackHeld: false,
   interact: false,
   confirm: false,
   back: false,
-  up: false,
-  down: false,
 };
 
 let save = emptySave();
@@ -31,6 +31,12 @@ let camY = 0;
 let lastTime = 0;
 let lastPersistAt = 0;
 let coinsThisMap = 0;
+let toast = { text: "", time: 0 };
+
+function showToast(text) {
+  toast.text = text;
+  toast.time = 2.2;
+}
 
 function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -88,6 +94,12 @@ async function loadSprites() {
     uiBackpack: "ui-backpack.png",
     uiLock: "ui-lock.png",
   };
+  ARMOR_TIERS.forEach((tier) => {
+    ARMOR_PIECES.forEach((piece) => {
+      names["item" + tier.name + piece.key] =
+        "item-" + tier.key + "-" + piece.key.toLowerCase() + ".png";
+    });
+  });
   const loaded = {};
   await Promise.all(
     Object.entries(names).map(async ([key, file]) => {
@@ -114,6 +126,13 @@ function spawnInMap(mapId, spawnX, spawnY) {
   const x = Number.isFinite(spawnX) ? spawnX : world.start.x;
   const y = Number.isFinite(spawnY) ? spawnY : world.start.y - 8;
   player = createPlayer(x, y, heroClips(save.gender));
+  if (mapId === "wilds" && Array.isArray(save.placedRopes)) {
+    world.ropes = attachRopesToPlatforms(
+      mergeRopes(world.ropes.concat(save.placedRopes)),
+      world.solids
+    );
+  }
+  syncPlayerArmor(true);
   coinsThisMap = 0;
   state = "play";
   if (mapId === "town") {
@@ -161,6 +180,9 @@ function persistGame(force) {
     chests: save.chests,
     chestPage: save.chestPage,
     equips: save.equips,
+    level: save.level,
+    xp: save.xp,
+    placedRopes: save.placedRopes || [],
     mapId: world.mapId === "wilds" ? "wilds" : "town",
     playerX: player.x,
     playerY: player.y,
@@ -228,8 +250,12 @@ function bindInput() {
       input.left = false;
     } else if (event.code === "ArrowRight" || event.code === "KeyD") {
       input.right = false;
-    } else if (event.code === "Space" || event.code === "KeyW" || event.code === "ArrowUp") {
-      input.jumpHeld = false;
+    } else if (event.code === "ArrowUp" || event.code === "KeyW") {
+      input.up = false;
+    } else if (event.code === "ArrowDown" || event.code === "KeyS") {
+      input.down = false;
+    } else if (event.code === "Space") {
+      input.attackHeld = false;
     }
   });
   canvas.addEventListener("click", handleCanvasClick);
@@ -269,11 +295,19 @@ function handleKeyDown(event) {
     input.left = true;
   } else if (code === "ArrowRight" || code === "KeyD") {
     input.right = true;
-  } else if (code === "Space" || code === "KeyW" || code === "ArrowUp") {
-    if (!input.jumpHeld) {
-      input.jumpPressed = true;
+  } else if (code === "ArrowUp" || code === "KeyW") {
+    input.up = true;
+  } else if (code === "ArrowDown" || code === "KeyS") {
+    input.down = true;
+  } else if (code === "Space") {
+    if (!input.attackHeld) {
+      input.attackPressed = true;
     }
-    input.jumpHeld = true;
+    input.attackHeld = true;
+  } else if (code === "KeyQ") {
+    if (state === "play") {
+      showToast(tryDeployRope());
+    }
   } else if (code === "KeyE") {
     tryInteract();
   } else if (code === "KeyI") {
@@ -521,7 +555,11 @@ function activateInv(inv) {
     }
     if (def && def.cat === "food") {
       takeFromGrid(currentPack(), inv.cursor);
-      inv.hint = "Ate " + itemName(entry.id) + ".";
+      inv.hint = consumeFood(entry.id);
+      return;
+    }
+    if (entry.id === "rope") {
+      inv.hint = tryDeployRope();
       return;
     }
     inv.hint = itemName(entry.id);
@@ -539,7 +577,9 @@ function activateInv(inv) {
   }
   if (cat === "food") {
     takeFromGrid(save.packs[row.page], row.index);
-    inv.hint = "Ate " + itemName(row.slot.id) + ".";
+    inv.hint = consumeFood(row.slot.id);
+  } else if (row.slot.id === "rope") {
+    inv.hint = tryDeployRope();
   } else {
     inv.hint = itemName(row.slot.id);
   }
@@ -721,8 +761,111 @@ function updateEnemies(dt) {
     enemy.facing = enemy.vx >= 0 ? 1 : -1;
     enemy.vy = Math.min(MAX_FALL, (enemy.vy || 0) + GRAVITY * dt);
     moveWithCollisions(enemy, world.solids, dt);
+    if (enemy.hurt > 0) {
+      enemy.hurt = Math.max(0, enemy.hurt - dt);
+    }
     updateAnim(enemy.anim, dt);
   });
+}
+
+function tryDeployRope() {
+  if (!world || world.mapId !== "wilds" || !player) {
+    return "Hang ropes in the wilds.";
+  }
+  if (countItem("rope") <= 0) {
+    return "You have no rope.";
+  }
+  const cx = player.x + player.w / 2;
+  let ceiling = null;
+  world.solids.forEach((solid) => {
+    if (cx < solid.x - 6 || cx > solid.x + solid.w + 6) {
+      return;
+    }
+    const bottom = solid.y + solid.h;
+    if (bottom >= player.y + 8) {
+      return;
+    }
+    if (player.y - bottom > TILE * 6) {
+      return;
+    }
+    if (!ceiling || bottom > ceiling.y + ceiling.h) {
+      ceiling = solid;
+    }
+  });
+  if (!ceiling) {
+    return "No platform above to hang from.";
+  }
+  const top = ceiling.y;
+  let floorY = world.height;
+  world.solids.forEach((solid) => {
+    if (cx < solid.x || cx > solid.x + solid.w) {
+      return;
+    }
+    if (solid.y > ceiling.y + 8 && solid.y < floorY) {
+      floorY = solid.y;
+    }
+  });
+  const rope = { x: cx - 8, y: top, w: 16, h: floorY - top };
+  if (rope.h < 48) {
+    return "Too close to hang a rope.";
+  }
+  const crowded = world.ropes.some((other) => Math.abs(other.x - rope.x) < 28);
+  if (crowded) {
+    return "A rope is already here.";
+  }
+  if (!takeItemFromPack("rope", 1)) {
+    return "You have no rope.";
+  }
+  world.ropes.push(rope);
+  save.placedRopes = (save.placedRopes || []).concat([rope]);
+  persistGame(true);
+  return "Hung a rope. Climb with Up / Down.";
+}
+
+function hurtEnemy(enemy, damage) {
+  if (!enemy.alive || enemy.hurt > 0) {
+    return;
+  }
+  enemy.hp -= damage;
+  enemy.hurt = 0.22;
+  enemy.vx = player.facing * 140;
+  if (enemy.hp > 0) {
+    return;
+  }
+  enemy.alive = false;
+  save.coins += enemy.coins || 2;
+  const ups = gainXp(enemy.xp || 8);
+  showToast(ups ? "Level " + heroLevel() + "!" : "+" + (enemy.xp || 8) + " XP");
+  persistGame(true);
+}
+
+function resolveSwordHits() {
+  if (!player || player.swing <= 0) {
+    return;
+  }
+  const box = attackBox(player);
+  world.enemies.forEach((enemy, index) => {
+    if (!enemy.alive || player.swingHits[index] || !aabbOverlap(box, enemy)) {
+      return;
+    }
+    player.swingHits[index] = true;
+    hurtEnemy(enemy, totalAttack());
+  });
+}
+
+function takeHit() {
+  if (player.iframes > 0) {
+    return;
+  }
+  player.hp -= 1;
+  player.iframes = 1.15;
+  player.climbing = false;
+  player.vy = -180;
+  player.vx = -player.facing * 220;
+  if (player.hp <= 0) {
+    state = "dead";
+    persistGame(true);
+  }
 }
 
 function resolveEnemyHits() {
@@ -730,16 +873,10 @@ function resolveEnemyHits() {
     if (!enemy.alive || !aabbOverlap(player, enemy)) {
       return;
     }
-    const stomp = player.vy > 80 && player.y + player.h - enemy.y < 28;
-    if (stomp) {
-      enemy.alive = false;
-      player.vy = JUMP_SPEED * 0.55;
-      save.coins += 2;
-      persistGame(true);
+    if (player.swing > 0) {
       return;
     }
-    state = "dead";
-    persistGame(true);
+    takeHit();
   });
 }
 
@@ -779,14 +916,21 @@ function update(dt) {
   if (state !== "play") {
     return;
   }
-  updatePlayer(player, input, world.solids, dt);
+  if (player.iframes > 0) {
+    player.iframes = Math.max(0, player.iframes - dt);
+  }
+  if (toast.time > 0) {
+    toast.time = Math.max(0, toast.time - dt);
+  }
+  updatePlayer(player, input, world.solids, world.ropes, dt);
   if (world.mapId === "town") {
     player.x = Math.max(0, Math.min(player.x, world.width - player.w));
   }
-  input.jumpPressed = false;
+  input.attackPressed = false;
   updateEnemies(dt);
   collectCoins(dt);
   if (world.mapId !== "town") {
+    resolveSwordHits();
     resolveEnemyHits();
   }
   activeSpot = nearestSpot(player, world.spots);
@@ -807,6 +951,7 @@ function update(dt) {
   }
   if (world.goal && aabbOverlap(player, world.goal)) {
     save.coins += 10;
+    gainXp(25);
     state = "win";
     persistGame(true);
   }
@@ -849,12 +994,33 @@ function drawBuildings() {
 }
 
 function drawHud() {
-  ctx.fillStyle = "rgba(20, 24, 32, 0.45)";
-  ctx.fillRect(16, 12, 280, 36);
+  ctx.fillStyle = "rgba(20, 24, 32, 0.5)";
+  ctx.fillRect(16, 10, 360, 64);
   ctx.fillStyle = "#fff8e8";
-  ctx.font = "18px Trebuchet MS, sans-serif";
+  ctx.font = "17px Trebuchet MS, sans-serif";
   const place = world && world.mapId === "town" ? "Town" : "Wilds";
-  ctx.fillText(place + "   Coins " + save.coins + "   Pack " + allPackUsed() + "/" + allPackCap(), 28, 36);
+  ctx.fillText(place + "   Coins " + save.coins + "   Pack " + allPackUsed() + "/" + allPackCap(), 28, 32);
+  const level = heroLevel();
+  const next = xpToNext(level);
+  const xp = level >= 20 ? next : Math.max(0, Math.floor(Number(save.xp) || 0));
+  ctx.font = "14px Trebuchet MS, sans-serif";
+  ctx.fillText("Lv " + level, 28, 56);
+  drawMeter(68, 44, 180, 14, xp / next, "#e8c57a", level >= 20 ? "MAX" : xp + "/" + next);
+  drawHpHud();
+  if (player && player.levelFlash > 0) {
+    ctx.textAlign = "center";
+    ctx.globalAlpha = Math.min(1, player.levelFlash);
+    drawOutlineText("Level " + level + "!", VIEW_W / 2, 120, 34);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = "left";
+  }
+  if (toast.time > 0 && toast.text) {
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#e8c57a";
+    ctx.font = "16px Trebuchet MS, sans-serif";
+    ctx.fillText(toast.text, VIEW_W / 2, 92);
+    ctx.textAlign = "left";
+  }
 
   if (state === "play") {
     drawInteractHint(activeSpot);
@@ -884,11 +1050,19 @@ function drawHud() {
 
 function drawEnemy(enemy) {
   const img = currentFrame(enemy.anim);
+  ctx.save();
+  if (enemy.hurt > 0) {
+    ctx.globalAlpha = 0.55;
+  }
   if (enemy.kind === "fox") {
     drawSprite(ctx, img, enemy.x - 8, enemy.y - 10, enemy.w + 16, enemy.h + 14, enemy.facing < 0);
-    return;
+  } else {
+    drawSprite(ctx, img, enemy.x - 6, enemy.y - 8, enemy.w + 12, enemy.h + 10, enemy.facing < 0);
   }
-  drawSprite(ctx, img, enemy.x - 6, enemy.y - 8, enemy.w + 12, enemy.h + 10, enemy.facing < 0);
+  ctx.restore();
+  if (enemy.hp < enemy.maxHp) {
+    drawMeter(enemy.x, enemy.y - 10, enemy.w, 5, enemy.hp / enemy.maxHp, "#e85d4c", "");
+  }
 }
 
 function draw() {
@@ -903,6 +1077,7 @@ function draw() {
   ctx.translate(-Math.round(camX), -Math.round(camY));
   const tile = world.mapId === "town" ? sprites.tileTown : sprites.tile;
   drawTiles(ctx, world.solids, tile, camX);
+  drawRopes(ctx, world.ropes || [], camX);
   drawBuildings();
   drawFlag(ctx, world.goal);
   world.coins.forEach((coin) => {
