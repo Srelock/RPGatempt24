@@ -1,0 +1,39 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #1b2430;
+  color: #f4efe6;
+  font-family: Trebuchet MS, Segoe UI, sans-serif;
+}
+
+#wrap {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+canvas {
+  display: block;
+  width: min(960px, 100%);
+  height: auto;
+  background: #87c4c8;
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  image-rendering: auto;
+}
+
+.hint {
+  margin: 0;
+  opacity: 0.8;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}

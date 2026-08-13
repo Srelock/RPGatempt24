@@ -1,0 +1,535 @@
+function heroClips(gender) {
+  const p = gender === "female" ? "female" : "male";
+  return {
+    idle: {
+      frames: [sprites[p + "Idle1"], sprites[p + "Idle2"]],
+      fps: 3,
+      loop: true,
+    },
+    walk: {
+      frames: [
+        sprites[p + "Walk1"],
+        sprites[p + "Walk2"],
+        sprites[p + "Walk3"],
+        sprites[p + "Walk4"],
+      ],
+      fps: 9,
+      loop: true,
+    },
+    jump: { frames: [sprites[p + "Jump"]], fps: 8, loop: false },
+    fall: { frames: [sprites[p + "Fall"]], fps: 8, loop: false },
+  };
+}
+
+function slimeClips() {
+  return {
+    walk: {
+      frames: [sprites.slime1, sprites.slime2, sprites.slime3, sprites.slime4],
+      fps: 8,
+      loop: true,
+    },
+  };
+}
+
+function foxClips() {
+  return {
+    walk: {
+      frames: [sprites.foxWalk1, sprites.foxWalk2, sprites.foxWalk3, sprites.foxWalk4],
+      fps: 9,
+      loop: true,
+    },
+  };
+}
+
+function coinClips() {
+  return {
+    spin: {
+      frames: [sprites.coin1, sprites.coin2, sprites.coin3, sprites.coin4],
+      fps: 8,
+      loop: true,
+    },
+  };
+}
+
+function drawPanel(x, y, w, h) {
+  ctx.fillStyle = "rgba(18, 22, 30, 0.92)";
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = "#e8c57a";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+}
+
+function characterSelectCards() {
+  return [
+    { gender: "male", label: "Male", img: sprites.maleIdle1, x: VIEW_W / 2 - 250, y: 140, w: 200, h: 300 },
+    { gender: "female", label: "Female", img: sprites.femaleIdle1, x: VIEW_W / 2 + 50, y: 140, w: 200, h: 300 },
+  ];
+}
+
+function hitCharacterSelect(mx, my) {
+  const cards = characterSelectCards();
+  for (let i = 0; i < cards.length; i += 1) {
+    const card = cards[i];
+    if (mx >= card.x && mx <= card.x + card.w && my >= card.y && my <= card.y + card.h) {
+      return card.gender;
+    }
+  }
+  return null;
+}
+
+function drawCharacterSelect(choice) {
+  ctx.fillStyle = "rgba(12, 16, 24, 0.55)";
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#fff8e8";
+  ctx.font = "36px Trebuchet MS, sans-serif";
+  ctx.fillText("Choose your adventurer", VIEW_W / 2, 70);
+  ctx.font = "16px Trebuchet MS, sans-serif";
+  ctx.fillText("Click a hero to start · Left / Right to look · Enter or Space to confirm", VIEW_W / 2, 104);
+
+  characterSelectCards().forEach((card) => {
+    const selected = choice === card.gender;
+    ctx.fillStyle = selected ? "rgba(232, 197, 122, 0.22)" : "rgba(18, 22, 30, 0.8)";
+    ctx.fillRect(card.x, card.y, card.w, card.h);
+    ctx.strokeStyle = selected ? "#e8c57a" : "#6a6258";
+    ctx.lineWidth = selected ? 4 : 2;
+    ctx.strokeRect(card.x, card.y, card.w, card.h);
+    if (card.img) {
+      ctx.drawImage(card.img, card.x + 24, card.y + 20, 152, 200);
+    }
+    ctx.fillStyle = "#fff8e8";
+    ctx.font = "22px Trebuchet MS, sans-serif";
+    ctx.fillText(card.label, card.x + card.w / 2, card.y + card.h - 40);
+  });
+  ctx.textAlign = "left";
+}
+
+function drawShop(shop) {
+  ctx.textAlign = "left";
+  drawPanel(180, 70, 600, 400);
+  ctx.fillStyle = "#fff8e8";
+  ctx.font = "26px Trebuchet MS, sans-serif";
+  ctx.fillText(shop.title, 210, 115);
+  ctx.font = "16px Trebuchet MS, sans-serif";
+  ctx.fillText("Coins: " + save.coins, 210, 142);
+  ctx.fillText("Up / Down to pick · Enter to buy · Esc to leave", 210, 168);
+
+  shop.stock.forEach((item, index) => {
+    const y = 200 + index * 46;
+    if (index === shop.cursor) {
+      ctx.fillStyle = "rgba(232, 197, 122, 0.25)";
+      ctx.fillRect(200, y - 24, 560, 40);
+    }
+    ctx.fillStyle = "#fff8e8";
+    ctx.font = "20px Trebuchet MS, sans-serif";
+    ctx.fillText(itemName(item.id), 220, y);
+    ctx.fillText(item.price + " coins", 620, y);
+  });
+  if (shop.message) {
+    ctx.fillStyle = "#e8c57a";
+    ctx.font = "16px Trebuchet MS, sans-serif";
+    ctx.fillText(shop.message, 210, 430);
+  }
+}
+
+function drawChestUi(inv) {
+  drawCharacterInventory(inv);
+}
+
+function roundRectPath(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawLeatherPanel(x, y, w, h) {
+  roundRectPath(x, y, w, h, 12);
+  ctx.fillStyle = "#6a4328";
+  ctx.fill();
+  ctx.strokeStyle = "#2b170e";
+  ctx.lineWidth = 4;
+  ctx.stroke();
+}
+
+function drawOutlineText(text, x, y, size) {
+  ctx.font = "bold " + size + "px Trebuchet MS, sans-serif";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#140c08";
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = "#fff8e8";
+  ctx.fillText(text, x, y);
+}
+
+function drawInvSlot(x, y, size, selected) {
+  ctx.fillStyle = "#3a2416";
+  ctx.fillRect(x, y, size, size);
+  ctx.fillStyle = "#2a1810";
+  ctx.fillRect(x + 3, y + 3, size - 6, size - 6);
+  ctx.strokeStyle = selected ? "#f2d789" : "#c9a06a";
+  ctx.lineWidth = selected ? 3 : 2;
+  ctx.strokeRect(x + 1, y + 1, size - 2, size - 2);
+}
+
+function drawGhost(kind, x, y, size) {
+  const cx = x + size / 2;
+  const cy = y + size / 2;
+  const s = size / 54;
+  ctx.save();
+  ctx.globalAlpha = 0.28;
+  ctx.fillStyle = "#d8c4a0";
+  ctx.strokeStyle = "#d8c4a0";
+  ctx.lineWidth = 2 * s;
+  if (kind === "helmet") {
+    ctx.beginPath();
+    ctx.arc(cx, cy - 2 * s, 11 * s, Math.PI, 0);
+    ctx.lineTo(cx + 11 * s, cy + 8 * s);
+    ctx.lineTo(cx - 11 * s, cy + 8 * s);
+    ctx.closePath();
+    ctx.fill();
+  } else if (kind === "shirt") {
+    ctx.fillRect(cx - 10 * s, cy - 8 * s, 20 * s, 18 * s);
+    ctx.fillRect(cx - 16 * s, cy - 8 * s, 6 * s, 10 * s);
+    ctx.fillRect(cx + 10 * s, cy - 8 * s, 6 * s, 10 * s);
+  } else if (kind === "pants") {
+    ctx.fillRect(cx - 9 * s, cy - 8 * s, 18 * s, 8 * s);
+    ctx.fillRect(cx - 9 * s, cy, 7 * s, 14 * s);
+    ctx.fillRect(cx + 2 * s, cy, 7 * s, 14 * s);
+  } else if (kind === "boots") {
+    ctx.fillRect(cx - 12 * s, cy - 4 * s, 10 * s, 12 * s);
+    ctx.fillRect(cx - 12 * s, cy + 6 * s, 14 * s, 5 * s);
+  } else if (kind === "weapon") {
+    ctx.fillRect(cx - 2 * s, cy - 14 * s, 4 * s, 22 * s);
+    ctx.fillRect(cx - 8 * s, cy + 6 * s, 16 * s, 4 * s);
+  } else if (kind === "pendant") {
+    ctx.beginPath();
+    ctx.arc(cx, cy + 4 * s, 7 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(cx - 1 * s, cy - 12 * s, 2 * s, 10 * s);
+  } else {
+    ctx.beginPath();
+    ctx.arc(cx, cy, 8 * s, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawItemInSlot(entry, x, y, size) {
+  if (!entry) {
+    return;
+  }
+  const def = ITEM_DEFS[entry.id];
+  const img = def && sprites[def.icon] ? sprites[def.icon] : null;
+  const pad = 6;
+  if (img) {
+    ctx.drawImage(img, x + pad, y + pad, size - pad * 2, size - pad * 2);
+  }
+  if (entry.count > 1) {
+    ctx.textAlign = "right";
+    drawOutlineText(String(entry.count), x + size - 6, y + size - 8, 14);
+    ctx.textAlign = "left";
+  }
+}
+
+function invLayout(inv) {
+  const slot = 70;
+  const gap = 4;
+  const pad = 8;
+  const tabH = 46;
+  const footerH = 30;
+  const chest = inv && inv.mode === "chest";
+  const colsLeft = chest ? CHEST_COLS : 2;
+  const colsRight = 4;
+  const rows = 4;
+  const leftW = pad * 2 + colsLeft * slot + (colsLeft - 1) * gap;
+  const rightW = pad * 2 + colsRight * slot + (colsRight - 1) * gap;
+  const midW = chest ? slot : 0;
+  const gridH = rows * slot + (rows - 1) * gap;
+  const height = tabH + pad + gridH + pad + footerH;
+  const join = 4;
+  const totalW = leftW + join + midW + (chest ? join : 0) + rightW;
+  const leftX = Math.round((VIEW_W - totalW) / 2);
+  const top = Math.round((VIEW_H - height) / 2) - 8;
+  const midX = leftX + leftW + join;
+  const rightX = chest ? midX + midW + join : leftX + leftW + join;
+  return {
+    slot: slot,
+    gap: gap,
+    pad: pad,
+    tabH: tabH,
+    footerH: footerH,
+    colsLeft: colsLeft,
+    top: top,
+    height: height,
+    leftX: leftX,
+    leftW: leftW,
+    midX: midX,
+    midW: midW,
+    rightX: rightX,
+    rightW: rightW,
+    gridTop: top + tabH + pad,
+    leftGridX: leftX + pad,
+    midGridX: midX,
+    rightGridX: rightX + pad,
+  };
+}
+
+function slotRect(originX, originY, col, row, cols, layout) {
+  const size = layout.slot;
+  const gap = layout.gap;
+  const x = originX + col * (size + gap);
+  const y = originY + row * (size + gap);
+  return { x: x, y: y, size: size };
+}
+
+function drawPageTabs(x, y, w, h, pages, selectedPage, icon) {
+  const tabW = w / pages;
+  for (let i = 0; i < pages; i += 1) {
+    drawInvTab(x + i * tabW, y, tabW, h, String(i + 1), icon, i === selectedPage);
+  }
+}
+
+function drawInvTab(x, y, w, h, label, icon, selected) {
+  ctx.fillStyle = selected ? "#7a4e2e" : "#4a2e1c";
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = selected ? "#e8c57a" : "#2b170e";
+  ctx.lineWidth = selected ? 2 : 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (icon) {
+    const iconSize = Math.min(22, Math.max(14, w - 12));
+    ctx.drawImage(icon, x + w / 2 - iconSize / 2, y + 3, iconSize, iconSize);
+  }
+  ctx.textAlign = "center";
+  drawOutlineText(label, x + w / 2, y + h - 7, w < 48 ? 9 : 10);
+  ctx.textAlign = "left";
+}
+
+function drawCharacterInventory(inv) {
+  const layout = invLayout(inv);
+  ctx.fillStyle = "rgba(10, 8, 14, 0.45)";
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  drawLeatherPanel(layout.leftX, layout.top, layout.leftW, layout.height);
+  if (inv.mode === "chest") {
+    drawLeatherPanel(layout.midX, layout.top, layout.midW, layout.height);
+  }
+  drawLeatherPanel(layout.rightX, layout.top, layout.rightW, layout.height);
+
+  const tabY = layout.top + 2;
+  if (inv.mode === "character") {
+    const tabW = layout.leftW / 3;
+    drawInvTab(layout.leftX, tabY, tabW, layout.tabH, "EQUIPS", sprites.itemSword, inv.tab === "equips");
+    drawInvTab(layout.leftX + tabW, tabY, tabW, layout.tabH, "TOOLS", sprites.itemPickaxe, inv.tab === "tools");
+    drawInvTab(layout.leftX + tabW * 2, tabY, tabW, layout.tabH, "FOODS", sprites.itemApple, inv.tab === "foods");
+    drawPageTabs(layout.rightX, tabY, layout.rightW, layout.tabH, PACK_PAGES, save.packPage, sprites.uiBackpack);
+  } else {
+    drawPageTabs(layout.leftX, tabY, layout.leftW, layout.tabH, CHEST_PAGES, save.chestPage, sprites.chestClosed);
+    drawPageTabs(layout.rightX, tabY, layout.rightW, layout.tabH, PACK_PAGES, save.packPage, sprites.uiBackpack);
+  }
+
+  drawLeftInvGrid(inv, layout);
+  if (inv.mode === "chest") {
+    drawChestButtons(inv, layout);
+  }
+  drawRightInvGrid(inv, layout);
+
+  const footY = layout.top + layout.height - layout.footerH + 4;
+  ctx.drawImage(sprites.uiLock, layout.rightX + 8, footY, 20, 20);
+  ctx.drawImage(sprites.coin1, layout.rightX + layout.rightW - 70, footY, 20, 20);
+  drawOutlineText(String(save.coins), layout.rightX + layout.rightW - 46, footY + 16, 16);
+
+  ctx.textAlign = "center";
+  ctx.font = "13px Trebuchet MS, sans-serif";
+  ctx.fillStyle = "#fff8e8";
+  const help =
+    inv.mode === "chest"
+      ? inv.multi
+        ? "SEL on · click chest slots to mark · x1 / ALL take marked · Esc close"
+        : "SORT · x1 take one · ALL take stack · SEL mark several · Esc close"
+      : "Click pack tabs for pages · 1/2/3 left tabs · Enter equip · Esc close";
+  ctx.fillText(inv.hint || help, VIEW_W / 2, layout.top + layout.height + 18);
+  ctx.textAlign = "left";
+}
+
+function drawLeftInvGrid(inv, layout) {
+  if (inv.mode === "chest") {
+    drawSlotGrid(
+      currentChest(),
+      CHEST_COLS,
+      CHEST_ROWS,
+      layout.leftGridX,
+      layout.gridTop,
+      layout,
+      inv.focus === "left" ? inv.cursor : inv.chestCursor,
+      inv.selected
+    );
+    return;
+  }
+  if (inv.tab === "equips") {
+    EQUIP_SLOTS.forEach((slotName, index) => {
+      const col = index < 4 ? 0 : 1;
+      const row = index % 4;
+      const rect = slotRect(layout.leftGridX, layout.gridTop, col, row, 2, layout);
+      const selected = inv.focus === "left" && inv.cursor === index;
+      drawInvSlot(rect.x, rect.y, rect.size, selected);
+      const worn = save.equips[slotName];
+      if (worn) {
+        drawItemInSlot(worn, rect.x, rect.y, rect.size);
+      } else {
+        drawGhost(slotName, rect.x, rect.y, rect.size);
+      }
+    });
+    return;
+  }
+  const cat = inv.tab === "tools" ? "tool" : "food";
+  const rows = filteredPack(cat);
+  for (let i = 0; i < 8; i += 1) {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const rect = slotRect(layout.leftGridX, layout.gridTop, col, row, 2, layout);
+    const selected = inv.focus === "left" && inv.cursor === i;
+    drawInvSlot(rect.x, rect.y, rect.size, selected);
+    if (rows[i]) {
+      drawItemInSlot(rows[i].slot, rect.x, rect.y, rect.size);
+    }
+  }
+}
+
+function drawRightInvGrid(inv, layout) {
+  drawSlotGrid(currentPack(), 4, 4, layout.rightGridX, layout.gridTop, layout, inv.focus === "right" ? inv.cursor : -1);
+}
+
+function chestButtonLabels() {
+  return ["SORT", "x1", "ALL", "SEL"];
+}
+
+function drawChestButtons(inv, layout) {
+  const labels = chestButtonLabels();
+  for (let i = 0; i < labels.length; i += 1) {
+    const rect = slotRect(layout.midGridX, layout.gridTop, 0, i, 1, layout);
+    const selected = (inv.focus === "mid" && inv.cursor === i) || (i === 3 && inv.multi);
+    drawInvSlot(rect.x, rect.y, rect.size, selected);
+    ctx.textAlign = "center";
+    drawOutlineText(labels[i], rect.x + rect.size / 2, rect.y + rect.size / 2 + 5, 14);
+    ctx.textAlign = "left";
+  }
+}
+
+function drawSlotGrid(grid, cols, rows, originX, originY, layout, cursor, marked) {
+  for (let i = 0; i < cols * rows; i += 1) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const rect = slotRect(originX, originY, col, row, cols, layout);
+    drawInvSlot(rect.x, rect.y, rect.size, cursor === i);
+    if (marked && marked.indexOf(i) >= 0) {
+      ctx.strokeStyle = "#7dff9a";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(rect.x + 5, rect.y + 5, rect.size - 10, rect.size - 10);
+    }
+    drawItemInSlot(grid[i], rect.x, rect.y, rect.size);
+  }
+}
+
+function hitInv(mx, my, inv) {
+  const layout = invLayout(inv);
+  const tabY = layout.top + 2;
+  if (inv.mode === "character") {
+    const tabW = layout.leftW / 3;
+    if (my >= tabY && my <= tabY + layout.tabH) {
+      if (mx >= layout.leftX && mx < layout.leftX + tabW) {
+        return { kind: "tab", tab: "equips" };
+      }
+      if (mx >= layout.leftX + tabW && mx < layout.leftX + tabW * 2) {
+        return { kind: "tab", tab: "tools" };
+      }
+      if (mx >= layout.leftX + tabW * 2 && mx <= layout.leftX + layout.leftW) {
+        return { kind: "tab", tab: "foods" };
+      }
+    }
+    const packHit = hitPageTabs(mx, my, layout.rightX, tabY, layout.rightW, layout.tabH, PACK_PAGES, "packPage");
+    if (packHit) {
+      return packHit;
+    }
+  } else {
+    const chestHit = hitPageTabs(mx, my, layout.leftX, tabY, layout.leftW, layout.tabH, CHEST_PAGES, "chestPage");
+    if (chestHit) {
+      return chestHit;
+    }
+    const packHit = hitPageTabs(mx, my, layout.rightX, tabY, layout.rightW, layout.tabH, PACK_PAGES, "packPage");
+    if (packHit) {
+      return packHit;
+    }
+    for (let i = 0; i < 4; i += 1) {
+      const r = slotRect(layout.midGridX, layout.gridTop, 0, i, 1, layout);
+      if (mx >= r.x && mx <= r.x + r.size && my >= r.y && my <= r.y + r.size) {
+        return { kind: "button", index: i };
+      }
+    }
+  }
+  const leftHits = leftSlotHits(inv, layout);
+  for (let i = 0; i < leftHits.length; i += 1) {
+    const r = leftHits[i];
+    if (mx >= r.x && mx <= r.x + r.size && my >= r.y && my <= r.y + r.size) {
+      return { kind: "left", index: i };
+    }
+  }
+  for (let i = 0; i < 16; i += 1) {
+    const col = i % 4;
+    const row = Math.floor(i / 4);
+    const r = slotRect(layout.rightGridX, layout.gridTop, col, row, 4, layout);
+    if (mx >= r.x && mx <= r.x + r.size && my >= r.y && my <= r.y + r.size) {
+      return { kind: "right", index: i };
+    }
+  }
+  return null;
+}
+
+function hitPageTabs(mx, my, x, y, w, h, pages, kind) {
+  if (my < y || my > y + h || mx < x || mx > x + w) {
+    return null;
+  }
+  const page = Math.floor((mx - x) / (w / pages));
+  if (page < 0 || page >= pages) {
+    return null;
+  }
+  return { kind: kind, page: page };
+}
+
+function leftSlotHits(inv, layout) {
+  const hits = [];
+  if (inv.mode === "chest") {
+    for (let i = 0; i < CHEST_SIZE; i += 1) {
+      const col = i % CHEST_COLS;
+      const row = Math.floor(i / CHEST_COLS);
+      hits.push(slotRect(layout.leftGridX, layout.gridTop, col, row, CHEST_COLS, layout));
+    }
+    return hits;
+  }
+  for (let i = 0; i < 8; i += 1) {
+    const col = inv.tab === "equips" ? (i < 4 ? 0 : 1) : i % 2;
+    const row = inv.tab === "equips" ? i % 4 : Math.floor(i / 2);
+    hits.push(slotRect(layout.leftGridX, layout.gridTop, col, row, 2, layout));
+  }
+  return hits;
+}
+
+function drawInteractHint(spot) {
+  if (!spot) {
+    return;
+  }
+  ctx.fillStyle = "rgba(20, 24, 32, 0.55)";
+  ctx.fillRect(VIEW_W / 2 - 210, VIEW_H - 58, 420, 36);
+  ctx.fillStyle = "#fff8e8";
+  ctx.textAlign = "center";
+  ctx.font = "16px Trebuchet MS, sans-serif";
+  const action = spot.kind === "exit" ? "head to the Wilds" : "open";
+  ctx.fillText("Press E to " + action + "  ·  " + spot.label, VIEW_W / 2, VIEW_H - 34);
+  ctx.textAlign = "left";
+}
