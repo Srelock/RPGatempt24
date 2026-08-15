@@ -1,30 +1,187 @@
 const TILE = 64;
 
+const ENEMY_DEFS = {
+  slime: {
+    clips: "slime",
+    hp: 6,
+    w: 48,
+    h: 44,
+    vx: 70,
+    patrol: 90,
+    xp: 10,
+    coins: 2,
+    ox: 8,
+    oy: 12,
+    padX: 6,
+    padY: 8,
+    tint: "",
+  },
+  fox: {
+    clips: "fox",
+    hp: 10,
+    w: 50,
+    h: 58,
+    vx: 90,
+    patrol: 110,
+    xp: 18,
+    coins: 4,
+    ox: 6,
+    oy: 4,
+    padX: 8,
+    padY: 10,
+    tint: "",
+  },
+  bat: {
+    clips: "slime",
+    hp: 8,
+    w: 40,
+    h: 36,
+    vx: 125,
+    patrol: 130,
+    xp: 14,
+    coins: 3,
+    ox: 12,
+    oy: 20,
+    padX: 6,
+    padY: 8,
+    tint: "hue-rotate(260deg) saturate(1.45)",
+  },
+  bear: {
+    clips: "fox",
+    hp: 16,
+    w: 62,
+    h: 68,
+    vx: 55,
+    patrol: 80,
+    xp: 26,
+    coins: 6,
+    ox: 2,
+    oy: 0,
+    padX: 8,
+    padY: 10,
+    tint: "hue-rotate(-18deg) saturate(1.25) brightness(0.78)",
+  },
+};
+
+const EXIT_CELLS = {
+  "1": "wilds",
+  "2": "grove",
+  "3": "caves",
+  "4": "ridge",
+};
+
+function groundMap(width, marks) {
+  const sky = " ".repeat(width);
+  const play = Array.from({ length: width }, () => " ");
+  Object.keys(marks).forEach((key) => {
+    const index = Number(key);
+    if (index >= 0 && index < width) {
+      play[index] = marks[key];
+    }
+  });
+  const rows = [];
+  for (let i = 0; i < 8; i += 1) {
+    rows.push(sky);
+  }
+  rows.push(play.join(""));
+  rows.push("#".repeat(width));
+  return rows;
+}
+
 const TOWN_ROWS = [
-  "               ",
-  "               ",
-  "               ",
-  "               ",
-  "               ",
-  "               ",
-  "               ",
-  "               ",
-  " P  G  B  C   X",
-  "###############",
+  "                  ",
+  "                  ",
+  "                  ",
+  "                  ",
+  "                  ",
+  "                  ",
+  "                  ",
+  "                  ",
+  " P G B C  1 2 3 4 ",
+  "##################",
 ];
 
-const WILDS_ROWS = [
-  "                                                                                ",
-  "                                                                                ",
-  "                         o                      o                         o     ",
-  "                       ####                   ####                      ####    ",
-  "                         |                      |                         |     ",
-  "       o                 |      o     o         |            o            |     ",
-  "     ####                |    ####  ###         |          ####           |     ",
-  "       |      o          |      |     |         |      ######  |    o     |     ",
-  "P      |              F  |      |  S  |      S  |              |          |    W",
-  "##############  ##############  ##############  ################################",
-];
+const MAPS = {
+  town: { title: "Town", sign: "TOWN", enemy: null, rows: TOWN_ROWS },
+  wilds: {
+    title: "Wilds",
+    sign: "WILDS",
+    enemy: "slime",
+    rows: groundMap(72, {
+      1: "P",
+      8: "o",
+      14: "E",
+      22: "o",
+      30: "E",
+      38: "o",
+      46: "E",
+      54: "o",
+      62: "E",
+      70: "W",
+    }),
+  },
+  grove: {
+    title: "Grove",
+    sign: "GROVE",
+    enemy: "fox",
+    rows: groundMap(80, {
+      1: "P",
+      8: "o",
+      16: "E",
+      24: "o",
+      34: "E",
+      44: "o",
+      54: "E",
+      64: "o",
+      72: "E",
+      78: "W",
+    }),
+  },
+  caves: {
+    title: "Caves",
+    sign: "CAVES",
+    enemy: "bat",
+    rows: groundMap(84, {
+      1: "P",
+      8: "o",
+      14: "E",
+      22: "o",
+      30: "E",
+      38: "o",
+      46: "E",
+      54: "o",
+      62: "E",
+      70: "o",
+      76: "E",
+      82: "W",
+    }),
+  },
+  ridge: {
+    title: "Ridge",
+    sign: "RIDGE",
+    enemy: "bear",
+    rows: groundMap(88, {
+      1: "P",
+      10: "o",
+      18: "E",
+      30: "o",
+      40: "E",
+      52: "o",
+      62: "E",
+      74: "o",
+      80: "E",
+      86: "W",
+    }),
+  },
+};
+
+function mapDef(mapId) {
+  return MAPS[mapId] || MAPS.town;
+}
+
+function isTownMap(mapId) {
+  return mapId === "town";
+}
 
 function parseLevel(rows, mapId) {
   const solids = [];
@@ -45,10 +202,9 @@ function parseLevel(rows, mapId) {
         coins.push({ x: x + 16, y: y + 16, w: 32, h: 32, taken: false });
       } else if (cell === "|") {
         ropeCells.push({ x: x + 24, y: y, w: 16, h: TILE });
-      } else if (cell === "S") {
-        enemies.push(createEnemy(x + 8, y + 12, "slime"));
-      } else if (cell === "F") {
-        enemies.push(createEnemy(x + 6, y + 4, "fox"));
+      } else if (cell === "E") {
+        const kind = mapDef(mapId).enemy || "slime";
+        enemies.push(createEnemy(x, y, kind));
       } else if (cell === "P") {
         start = { x: x, y: y };
       } else if (cell === "G") {
@@ -57,8 +213,9 @@ function parseLevel(rows, mapId) {
         spots.push(makeSpot("forge", "Blacksmith's Forge", x, y));
       } else if (cell === "C") {
         spots.push(makeSpot("chest", "Storage Chest", x, y));
-      } else if (cell === "X") {
-        spots.push(makeSpot("exit", "Path to the Wilds", x, y));
+      } else if (EXIT_CELLS[cell]) {
+        const dest = EXIT_CELLS[cell];
+        spots.push(makeSpot("exit", "Path to the " + mapDef(dest).title, x, y, dest));
       } else if (cell === "W") {
         goal = { x: x + 16, y: y - 32, w: 28, h: TILE + 32 };
       }
@@ -82,11 +239,12 @@ function parseLevel(rows, mapId) {
   };
 }
 
-function makeSpot(kind, label, x, y) {
+function makeSpot(kind, label, x, y, dest) {
   const wide = kind === "chest" ? 56 : 88;
   return {
     kind: kind,
     label: label,
+    dest: dest || null,
     x: x - 12,
     y: y,
     w: wide,
@@ -95,25 +253,24 @@ function makeSpot(kind, label, x, y) {
 }
 
 function createEnemy(x, y, kind) {
-  const fox = kind === "fox";
-  const hp = fox ? 10 : 6;
+  const def = ENEMY_DEFS[kind] || ENEMY_DEFS.slime;
   return {
     kind: kind,
-    x: x,
-    y: y,
-    w: fox ? 50 : 48,
-    h: fox ? 58 : 44,
-    vx: fox ? 90 : 70,
+    x: x + def.ox,
+    y: y + def.oy,
+    w: def.w,
+    h: def.h,
+    vx: def.vx,
     vy: 0,
-    originX: x,
-    patrol: fox ? 110 : 90,
+    originX: x + def.ox,
+    patrol: def.patrol,
     alive: true,
     facing: 1,
     anim: null,
-    hp: hp,
-    maxHp: hp,
-    xp: fox ? 18 : 10,
-    coins: fox ? 4 : 2,
+    hp: def.hp,
+    maxHp: def.hp,
+    xp: def.xp,
+    coins: def.coins,
     hurt: 0,
   };
 }

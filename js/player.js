@@ -20,7 +20,8 @@ function createPlayer(x, y, clips) {
     walkTo: null,
     walkMarkY: null,
     pendingInteract: null,
-    walkJustArrived: false,
+    huntTarget: null,
+    manualWalk: false,
     hp: 1,
     maxHp: 1,
     iframes: 0,
@@ -52,16 +53,19 @@ function attackBox(player) {
   return { x: x, y: player.y + 12, w: w, h: h };
 }
 
-function tryStartAttack(player) {
+function tryStartAttack(player, keepWalk) {
   if (player.swingCd > 0 || player.swing > 0) {
     return false;
   }
   player.swing = ATTACK_TIME;
   player.swingCd = ATTACK_CD;
   player.swingHits = {};
-  player.walkTo = null;
-  player.pendingInteract = null;
   player.climbing = false;
+  if (!keepWalk) {
+    player.walkTo = null;
+    player.pendingInteract = null;
+    player.huntTarget = null;
+  }
   return true;
 }
 

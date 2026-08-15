@@ -1,5 +1,10 @@
 const VIEW_W = 960;
 const VIEW_H = 540;
+const MENU_H = 76;
+
+function playH() {
+  return VIEW_H - MENU_H;
+}
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -23,6 +28,8 @@ let player = null;
 let sprites = null;
 let state = "select";
 let selectGender = "male";
+let selectName = "";
+let selectHint = "";
 let activeSpot = null;
 let shop = null;
 let chestUi = null;
@@ -32,6 +39,8 @@ let lastTime = 0;
 let lastPersistAt = 0;
 let coinsThisMap = 0;
 let toast = { text: "", time: 0 };
+let menuPanel = null;
+let autoHunt = false;
 
 function showToast(text) {
   toast.text = text;
@@ -111,8 +120,7 @@ async function loadSprites() {
 
 function bindAnims(level) {
   level.enemies.forEach((enemy) => {
-    const clips = enemy.kind === "fox" ? foxClips() : slimeClips();
-    enemy.anim = createAnim(clips, "walk");
+    enemy.anim = createAnim(enemyClips(enemy.kind), "walk");
   });
   level.coins.forEach((coin) => {
     coin.anim = createAnim(coinClips(), "spin");
@@ -120,13 +128,13 @@ function bindAnims(level) {
 }
 
 function spawnInMap(mapId, spawnX, spawnY) {
-  const rows = mapId === "town" ? TOWN_ROWS : WILDS_ROWS;
-  world = parseLevel(rows, mapId);
+  const id = MAPS[mapId] ? mapId : "town";
+  world = parseLevel(mapDef(id).rows, id);
   bindAnims(world);
   const x = Number.isFinite(spawnX) ? spawnX : world.start.x;
   const y = Number.isFinite(spawnY) ? spawnY : world.start.y - 8;
   player = createPlayer(x, y, heroClips(save.gender));
-  if (mapId === "wilds" && Array.isArray(save.placedRopes)) {
+  if (id === "wilds" && Array.isArray(save.placedRopes)) {
     world.ropes = attachRopesToPlatforms(
       mergeRopes(world.ropes.concat(save.placedRopes)),
       world.solids
@@ -135,12 +143,12 @@ function spawnInMap(mapId, spawnX, spawnY) {
   syncPlayerArmor(true);
   coinsThisMap = 0;
   state = "play";
-  if (mapId === "town") {
+  if (isTownMap(id)) {
     camX = 0;
-    camY = Math.max(0, world.height - VIEW_H);
+    camY = Math.max(0, world.height - playH());
   } else {
     camX = Math.max(0, player.x - VIEW_W * 0.35);
-    camY = Math.max(0, world.height - VIEW_H);
+    camY = Math.max(0, world.height - playH());
   }
   shop = null;
   chestUi = null;
@@ -148,9 +156,17 @@ function spawnInMap(mapId, spawnX, spawnY) {
   player.walkMarkY = null;
   player.pendingInteract = null;
   player.walkJustArrived = false;
+  player.huntTarget = null;
+  player.manualWalk = false;
 }
 
 function startAdventure() {
+  const name = sanitizeHeroName(selectName);
+  if (!name) {
+    selectHint = "Enter a name to begin.";
+    return;
+  }
+  save.name = name;
   save.gender = selectGender;
   spawnInMap("town");
   persistGame(true);
@@ -174,6 +190,7 @@ function persistGame(force) {
   writeStoredSave({
     version: 1,
     gender: save.gender,
+    name: save.name,
     coins: save.coins,
     packs: save.packs,
     packPage: save.packPage,
@@ -183,7 +200,7 @@ function persistGame(force) {
     level: save.level,
     xp: save.xp,
     placedRopes: save.placedRopes || [],
-    mapId: world.mapId === "wilds" ? "wilds" : "town",
+    mapId: world.mapId,
     playerX: player.x,
     playerY: player.y,
     facing: player.facing,
@@ -223,8 +240,9 @@ function resumeStoredGame() {
   }
   save = stored.save;
   selectGender = save.gender;
+  selectName = save.name || "";
   const raw = stored.world;
-  const mapId = raw.mapId === "wilds" ? "wilds" : "town";
+  const mapId = MAPS[raw.mapId] ? raw.mapId : "town";
   const x = Number(raw.playerX);
   const y = Number(raw.playerY);
   spawnInMap(mapId, Number.isFinite(x) ? x : undefined, Number.isFinite(y) ? y : undefined);
@@ -241,6 +259,9 @@ function resumeStoredGame() {
 function bindInput() {
   window.addEventListener("keydown", (event) => {
     handleKeyDown(event);
+    if (state === "select" && (event.code === "Backspace" || event.code === "Enter")) {
+      event.preventDefault();
+    }
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"].includes(event.code)) {
       event.preventDefault();
     }
@@ -259,6 +280,7 @@ function bindInput() {
     }
   });
   canvas.addEventListener("click", handleCanvasClick);
+  bindGameMenu();
   window.addEventListener("pagehide", () => persistGame(true));
   window.addEventListener("beforeunload", () => persistGame(true));
   document.addEventListener("visibilitychange", () => {
@@ -268,16 +290,55 @@ function bindInput() {
   });
 }
 
-function handleKeyDown(event) {
+function handleSelectKey(event) {
   const code = event.code;
   const key = event.key;
+  if (code === "Enter") {
+    startAdventure();
+    return;
+  }
+  if (code === "Tab") {
+    selectGender = selectGender === "male" ? "female" : "male";
+    return;
+  }
+  if (code === "ArrowLeft") {
+    selectGender = "male";
+    return;
+  }
+  if (code === "ArrowRight") {
+    selectGender = "female";
+    return;
+  }
+  if (code === "Backspace") {
+    selectName = selectName.slice(0, -1);
+    selectHint = "";
+    return;
+  }
+  if (event.ctrlKey || event.metaKey || event.altKey) {
+    return;
+  }
+  if (!key || key.length !== 1 || !HERO_NAME_CHAR.test(key)) {
+    return;
+  }
+  if (key === " " && (!selectName || selectName.endsWith(" "))) {
+    return;
+  }
+  if (selectName.length >= HERO_NAME_MAX) {
+    return;
+  }
+  selectName += key;
+  selectHint = "";
+}
+
+function handleKeyDown(event) {
+  const code = event.code;
   if (state === "select") {
-    if (code === "ArrowLeft" || code === "KeyA") {
-      selectGender = "male";
-    } else if (code === "ArrowRight" || code === "KeyD") {
-      selectGender = "female";
-    } else if (code === "Enter" || code === "Space" || key === "Enter") {
-      startAdventure();
+    handleSelectKey(event);
+    return;
+  }
+  if (menuPanel) {
+    if (code === "Escape") {
+      closeMenuPanel();
     }
     return;
   }
@@ -293,12 +354,16 @@ function handleKeyDown(event) {
 
   if (code === "ArrowLeft" || code === "KeyA") {
     input.left = true;
+    cancelHuntForManualMove();
   } else if (code === "ArrowRight" || code === "KeyD") {
     input.right = true;
+    cancelHuntForManualMove();
   } else if (code === "ArrowUp" || code === "KeyW") {
     input.up = true;
+    cancelHuntForManualMove();
   } else if (code === "ArrowDown" || code === "KeyS") {
     input.down = true;
+    cancelHuntForManualMove();
   } else if (code === "Space") {
     if (!input.attackHeld) {
       input.attackPressed = true;
@@ -311,12 +376,12 @@ function handleKeyDown(event) {
   } else if (code === "KeyE") {
     tryInteract();
   } else if (code === "KeyI") {
-    openInventory("character");
+    toggleCharacterInventory();
   } else if (code === "KeyR") {
     if (state === "dead" || state === "win") {
       returnToTown();
     }
-  } else if (code === "Escape" && world && world.mapId === "wilds") {
+  } else if (code === "Escape" && world && !isTownMap(world.mapId)) {
     returnToTown();
   }
 }
@@ -332,7 +397,7 @@ function tryInteract() {
   } else if (activeSpot.kind === "chest") {
     openInventory("chest");
   } else if (activeSpot.kind === "exit") {
-    spawnInMap("wilds");
+    spawnInMap(activeSpot.dest || "wilds");
     persistGame(true);
   }
 }
@@ -358,10 +423,11 @@ function handleShopKey(code) {
   }
 }
 
-function openInventory(mode) {
+function openInventory(mode, tab) {
+  closeMenuPanel();
   chestUi = {
     mode: mode,
-    tab: "equips",
+    tab: tab || "equips",
     focus: mode === "chest" ? "left" : "right",
     cursor: 0,
     hint: "",
@@ -370,6 +436,223 @@ function openInventory(mode) {
     chestCursor: 0,
   };
   state = "chest";
+}
+
+function closePlayUi() {
+  if (state === "shop") {
+    shop = null;
+    state = "play";
+  }
+  if (state === "chest") {
+    chestUi = null;
+    state = "play";
+  }
+}
+
+function toggleCharacterInventory(tab) {
+  tab = tab || "equips";
+  if (state === "chest" && chestUi && chestUi.mode === "character") {
+    if (chestUi.tab !== tab) {
+      chestUi.tab = tab;
+      chestUi.cursor = 0;
+      return;
+    }
+    closePlayUi();
+    persistGame(true);
+    return;
+  }
+  closePlayUi();
+  openInventory("character", tab);
+}
+
+function bindGameMenu() {
+  const root = document.getElementById("game-menu");
+  const overlay = document.getElementById("menu-overlay");
+  if (!root || !overlay) {
+    return;
+  }
+  root.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-menu]");
+    if (!btn) {
+      return;
+    }
+    activateGameMenu(btn.getAttribute("data-menu"));
+  });
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      closeMenuPanel();
+    }
+  });
+}
+
+function activateGameMenu(kind) {
+  if (kind === "auto") {
+    toggleAutoHunt();
+    return;
+  }
+  if (kind === "items") {
+    toggleCharacterInventory("foods");
+    return;
+  }
+  if (kind === "equip") {
+    toggleCharacterInventory("equips");
+    return;
+  }
+  if (menuPanel === kind) {
+    closeMenuPanel();
+    return;
+  }
+  closePlayUi();
+  menuPanel = kind;
+  renderMenuPanel();
+}
+
+function closeMenuPanel() {
+  menuPanel = null;
+  const overlay = document.getElementById("menu-overlay");
+  if (overlay) {
+    overlay.hidden = true;
+  }
+  syncMenuButtons();
+}
+
+function renderMenuPanel() {
+  const overlay = document.getElementById("menu-overlay");
+  const card = document.getElementById("menu-card");
+  if (!overlay || !card) {
+    return;
+  }
+  overlay.hidden = false;
+  if (menuPanel === "map") {
+    const place = world ? mapDef(world.mapId).title : "Town";
+    card.innerHTML =
+      "<h2>Map</h2><p>You are in " +
+      place +
+      ".</p><ul><li>Town: shops, chest, and four hunting paths.</li>" +
+      "<li>Wilds: slimes. Grove: foxes. Caves: bats. Ridge: bears.</li></ul>" +
+      '<div class="menu-card-actions">' +
+      (world && !isTownMap(world.mapId)
+        ? '<button type="button" data-act="town">Return to Town</button>'
+        : "") +
+      '<button type="button" data-act="close">Close</button></div>';
+  } else if (menuPanel === "help") {
+    card.innerHTML =
+      "<h2>Help</h2><ul>" +
+      "<li>Click a monster to chase and attack it.</li>" +
+      "<li>AUTO hunts nearby foes outside town.</li>" +
+      "<li>Click the ground or a building to walk there.</li>" +
+      "<li>Arrows / WASD move. Up / Down climb ropes.</li>" +
+      "<li>Space swings your sword. Q hangs a rope.</li>" +
+      "<li>E interacts. I opens items. Esc returns to town.</li>" +
+      "</ul><div class=\"menu-card-actions\"><button type=\"button\" data-act=\"close\">Close</button></div>";
+  } else {
+    card.innerHTML =
+      "<h2>Menu</h2><p>Progress saves automatically.</p>" +
+      '<div class="menu-card-actions">' +
+      '<button type="button" data-act="close">Resume</button>' +
+      '<button type="button" data-act="new">New Adventurer</button></div>';
+  }
+  card.querySelectorAll("[data-act]").forEach((btn) => {
+    btn.addEventListener("click", () => handleMenuAction(btn.getAttribute("data-act")));
+  });
+  syncMenuButtons();
+}
+
+function handleMenuAction(act) {
+  if (act === "town") {
+    closeMenuPanel();
+    returnToTown();
+    return;
+  }
+  if (act === "new") {
+    startNewAdventurer();
+    return;
+  }
+  closeMenuPanel();
+}
+
+function startNewAdventurer() {
+  closeMenuPanel();
+  closePlayUi();
+  try {
+    window.localStorage.removeItem(SAVE_KEY);
+  } catch (err) {
+    /* ignore */
+  }
+  save = emptySave();
+  world = null;
+  player = null;
+  shop = null;
+  chestUi = null;
+  autoHunt = false;
+  state = "select";
+  selectName = "";
+  selectGender = "male";
+  selectHint = "";
+  syncGameMenu();
+}
+
+function syncMenuButtons() {
+  const invOpen = state === "chest" && chestUi && chestUi.mode === "character";
+  document.querySelectorAll("#game-menu [data-menu]").forEach((btn) => {
+    const kind = btn.getAttribute("data-menu");
+    const on =
+      (kind === "auto" && autoHunt) ||
+      menuPanel === kind ||
+      (invOpen && kind === "items" && chestUi.tab !== "equips") ||
+      (invOpen && kind === "equip" && chestUi.tab === "equips");
+    btn.classList.toggle("is-on", on);
+  });
+  const badge = document.getElementById("auto-badge");
+  if (badge) {
+    badge.textContent = autoHunt ? "ON" : "OFF";
+    badge.classList.toggle("is-on", autoHunt);
+  }
+}
+
+function syncGameMenu() {
+  const root = document.getElementById("game-menu");
+  if (!root) {
+    return;
+  }
+  const show = state !== "select" && !!save.gender;
+  root.hidden = !show;
+  if (!show) {
+    if (menuPanel) {
+      closeMenuPanel();
+    }
+    return;
+  }
+  const level = heroLevel();
+  const next = xpToNext(level);
+  const xp = level >= 20 ? next : Math.max(0, Math.floor(Number(save.xp) || 0));
+  const hp = player ? player.hp : heroMaxHp();
+  const maxHp = player ? player.maxHp : heroMaxHp();
+  const bag = allPackUsed();
+  const bagCap = allPackCap();
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = value;
+    }
+  };
+  const setFill = (id, amount) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.width = Math.round(Math.max(0, Math.min(1, amount)) * 100) + "%";
+    }
+  };
+  setText("menu-name", (save.name || "Adventurer").toUpperCase());
+  setText("menu-place", world ? mapDef(world.mapId).title.toUpperCase() : "TOWN");
+  setText("menu-level", String(level));
+  setText("menu-hp-text", hp + "/" + maxHp);
+  setText("menu-bag-text", bag + "/" + bagCap);
+  setText("menu-xp-text", level >= 20 ? "MAX" : xp + "/" + next);
+  setText("menu-coins", String(save.coins));
+  setFill("menu-hp-fill", hp / Math.max(1, maxHp));
+  setFill("menu-bag-fill", bag / Math.max(1, bagCap));
+  setFill("menu-xp-fill", xp / Math.max(1, next));
+  syncMenuButtons();
 }
 
 function buySelected() {
@@ -662,25 +945,42 @@ function canvasPoint(event) {
 function handleCanvasClick(event) {
   const point = canvasPoint(event);
   if (state === "select") {
-    const gender = hitCharacterSelect(point.x, point.y);
-    if (!gender) {
+    const hit = hitCharacterSelect(point.x, point.y);
+    if (!hit) {
       return;
     }
-    selectGender = gender;
-    startAdventure();
+    if (hit.kind === "gender") {
+      selectGender = hit.gender;
+      return;
+    }
+    if (hit.kind === "begin") {
+      startAdventure();
+    }
     return;
   }
   if (state === "play") {
+    if (point.y >= playH()) {
+      return;
+    }
     const worldX = point.x + camX;
     const worldY = point.y + camY;
+    const enemy = hitEnemyAt(worldX, worldY);
+    if (enemy) {
+      setHuntTarget(enemy);
+      return;
+    }
     const spot = hitWorldSpot(worldX, worldY, world.spots);
     if (spot) {
+      player.huntTarget = null;
+      player.manualWalk = true;
       player.walkTo = Math.max(player.w / 2, Math.min(world.width - player.w / 2, spot.x + spot.w / 2));
       player.walkMarkY = spot.y + spot.h - 6;
       player.pendingInteract = spot;
       player.walkJustArrived = false;
       return;
     }
+    player.huntTarget = null;
+    player.manualWalk = true;
     player.walkTo = Math.max(player.w / 2, Math.min(world.width - player.w / 2, worldX));
     player.walkMarkY = worldY;
     player.pendingInteract = null;
@@ -822,6 +1122,145 @@ function tryDeployRope() {
   return "Hung a rope. Climb with Up / Down.";
 }
 
+function toggleAutoHunt() {
+  if (!world || world.mapId === "town") {
+    showToast("No hunting in town.");
+    return;
+  }
+  autoHunt = !autoHunt;
+  if (player) {
+    player.manualWalk = false;
+    if (!autoHunt) {
+      player.huntTarget = null;
+    }
+  }
+  showToast(autoHunt ? "Auto hunt on" : "Auto hunt off");
+  syncMenuButtons();
+}
+
+function cancelHuntForManualMove() {
+  if (player) {
+    player.huntTarget = null;
+    player.manualWalk = false;
+  }
+  if (autoHunt) {
+    autoHunt = false;
+    showToast("Auto hunt off");
+    syncMenuButtons();
+  }
+}
+
+function setHuntTarget(enemy) {
+  if (!player || !enemy || !enemy.alive) {
+    return;
+  }
+  player.huntTarget = enemy;
+  player.manualWalk = false;
+  player.pendingInteract = null;
+  player.walkJustArrived = false;
+}
+
+function hitEnemyAt(wx, wy) {
+  if (!world) {
+    return null;
+  }
+  let best = null;
+  let bestD = Infinity;
+  world.enemies.forEach((enemy) => {
+    if (!enemy.alive) {
+      return;
+    }
+    const pad = 10;
+    if (wx < enemy.x - pad || wx > enemy.x + enemy.w + pad) {
+      return;
+    }
+    if (wy < enemy.y - pad || wy > enemy.y + enemy.h + pad) {
+      return;
+    }
+    const dx = wx - (enemy.x + enemy.w / 2);
+    const dy = wy - (enemy.y + enemy.h / 2);
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      best = enemy;
+      bestD = d;
+    }
+  });
+  return best;
+}
+
+function nearestHuntEnemy() {
+  let best = null;
+  let bestD = Infinity;
+  world.enemies.forEach((enemy) => {
+    if (!enemy.alive) {
+      return;
+    }
+    const dy = Math.abs(player.y + player.h / 2 - (enemy.y + enemy.h / 2));
+    if (dy > 90) {
+      return;
+    }
+    const d = Math.abs(player.x - enemy.x) + dy;
+    if (d < bestD) {
+      best = enemy;
+      bestD = d;
+    }
+  });
+  return best;
+}
+
+function faceEnemy(enemy) {
+  const pc = player.x + player.w / 2;
+  const ec = enemy.x + enemy.w / 2;
+  player.facing = ec >= pc ? 1 : -1;
+}
+
+function inAttackRange(enemy) {
+  const box = attackBox(player);
+  const reach = { x: box.x - 10, y: box.y - 10, w: box.w + 20, h: box.h + 20 };
+  return aabbOverlap(reach, enemy);
+}
+
+function huntApproachX(enemy) {
+  const pc = player.x + player.w / 2;
+  const ec = enemy.x + enemy.w / 2;
+  if (pc <= ec) {
+    return enemy.x - 34;
+  }
+  return enemy.x + enemy.w + 34;
+}
+
+function updateHunt() {
+  if (!player || !world || world.mapId === "town" || player.climbing) {
+    return;
+  }
+  if (player.manualWalk) {
+    if (player.walkTo !== null) {
+      return;
+    }
+    player.manualWalk = false;
+  }
+  if (player.huntTarget && !player.huntTarget.alive) {
+    player.huntTarget = null;
+  }
+  if (!player.huntTarget && autoHunt) {
+    player.huntTarget = nearestHuntEnemy();
+  }
+  const enemy = player.huntTarget;
+  if (!enemy) {
+    return;
+  }
+  faceEnemy(enemy);
+  if (inAttackRange(enemy)) {
+    player.walkTo = null;
+    player.pendingInteract = null;
+    tryStartAttack(player, true);
+    return;
+  }
+  player.walkTo = Math.max(player.w / 2, Math.min(world.width - player.w / 2, huntApproachX(enemy)));
+  player.walkMarkY = enemy.y + enemy.h;
+  player.pendingInteract = null;
+}
+
 function hurtEnemy(enemy, damage) {
   if (!enemy.alive || enemy.hurt > 0) {
     return;
@@ -896,21 +1335,24 @@ function collectCoins(dt) {
 }
 
 function updateCamera() {
-  if (world.mapId === "town") {
-    camX = 0;
-    camY = Math.max(0, world.height - VIEW_H);
+  const h = playH();
+  camY = Math.max(0, world.height - h);
+  if (isTownMap(world.mapId)) {
+    const targetX = player.x - VIEW_W * 0.4;
+    camX += (targetX - camX) * 0.12;
+    camX = Math.max(0, Math.min(camX, Math.max(0, world.width - VIEW_W)));
     return;
   }
   const targetX = player.x - VIEW_W * 0.35;
-  const targetY = player.y - VIEW_H * 0.62;
+  const targetY = player.y - h * 0.62;
   camX += (targetX - camX) * 0.12;
   camY += (targetY - camY) * 0.12;
   camX = Math.max(0, Math.min(camX, Math.max(0, world.width - VIEW_W)));
-  camY = Math.max(0, Math.min(camY, Math.max(0, world.height - VIEW_H)));
+  camY = Math.max(0, Math.min(camY, Math.max(0, world.height - h)));
 }
 
 function update(dt) {
-  if (state === "select" || state === "shop" || state === "chest") {
+  if (state === "select" || state === "shop" || state === "chest" || menuPanel) {
     return;
   }
   if (state !== "play") {
@@ -922,6 +1364,7 @@ function update(dt) {
   if (toast.time > 0) {
     toast.time = Math.max(0, toast.time - dt);
   }
+  updateHunt();
   updatePlayer(player, input, world.solids, world.ropes, dt);
   if (world.mapId === "town") {
     player.x = Math.max(0, Math.min(player.x, world.width - player.w));
@@ -988,29 +1431,17 @@ function drawBuildings() {
       ctx.fillRect(spot.x + 36, spot.y + TILE - 108, 74, 42);
       ctx.fillStyle = "#3a2a18";
       ctx.font = "12px Trebuchet MS, sans-serif";
-      ctx.fillText("WILDS", spot.x + 46, spot.y + TILE - 82);
+      const sign = mapDef(spot.dest).sign;
+      ctx.fillText(sign, spot.x + 46, spot.y + TILE - 82);
     }
   });
 }
 
 function drawHud() {
-  ctx.fillStyle = "rgba(20, 24, 32, 0.5)";
-  ctx.fillRect(16, 10, 360, 64);
-  ctx.fillStyle = "#fff8e8";
-  ctx.font = "17px Trebuchet MS, sans-serif";
-  const place = world && world.mapId === "town" ? "Town" : "Wilds";
-  ctx.fillText(place + "   Coins " + save.coins + "   Pack " + allPackUsed() + "/" + allPackCap(), 28, 32);
-  const level = heroLevel();
-  const next = xpToNext(level);
-  const xp = level >= 20 ? next : Math.max(0, Math.floor(Number(save.xp) || 0));
-  ctx.font = "14px Trebuchet MS, sans-serif";
-  ctx.fillText("Lv " + level, 28, 56);
-  drawMeter(68, 44, 180, 14, xp / next, "#e8c57a", level >= 20 ? "MAX" : xp + "/" + next);
-  drawHpHud();
   if (player && player.levelFlash > 0) {
     ctx.textAlign = "center";
     ctx.globalAlpha = Math.min(1, player.levelFlash);
-    drawOutlineText("Level " + level + "!", VIEW_W / 2, 120, 34);
+    drawOutlineText("Level " + heroLevel() + "!", VIEW_W / 2, 88, 34);
     ctx.globalAlpha = 1;
     ctx.textAlign = "left";
   }
@@ -1018,7 +1449,7 @@ function drawHud() {
     ctx.textAlign = "center";
     ctx.fillStyle = "#e8c57a";
     ctx.font = "16px Trebuchet MS, sans-serif";
-    ctx.fillText(toast.text, VIEW_W / 2, 92);
+    ctx.fillText(toast.text, VIEW_W / 2, 64);
     ctx.textAlign = "left";
   }
 
@@ -1038,28 +1469,41 @@ function drawHud() {
     return;
   }
   ctx.fillStyle = "rgba(16, 18, 24, 0.55)";
-  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.fillRect(0, 0, VIEW_W, playH());
   ctx.fillStyle = "#fff8e8";
   ctx.textAlign = "center";
   ctx.font = "42px Trebuchet MS, sans-serif";
-  ctx.fillText(state === "win" ? "The wilds are clear!" : "Ouch!", VIEW_W / 2, VIEW_H / 2 - 10);
+  ctx.fillText(state === "win" ? mapDef(world.mapId).title + " is clear!" : "Ouch!", VIEW_W / 2, playH() / 2 - 10);
   ctx.font = "18px Trebuchet MS, sans-serif";
-  ctx.fillText("Press R to return to town", VIEW_W / 2, VIEW_H / 2 + 28);
+  ctx.fillText("Press R to return to town", VIEW_W / 2, playH() / 2 + 28);
   ctx.textAlign = "left";
 }
 
 function drawEnemy(enemy) {
   const img = currentFrame(enemy.anim);
+  const def = ENEMY_DEFS[enemy.kind] || ENEMY_DEFS.slime;
   ctx.save();
   if (enemy.hurt > 0) {
     ctx.globalAlpha = 0.55;
   }
-  if (enemy.kind === "fox") {
-    drawSprite(ctx, img, enemy.x - 8, enemy.y - 10, enemy.w + 16, enemy.h + 14, enemy.facing < 0);
-  } else {
-    drawSprite(ctx, img, enemy.x - 6, enemy.y - 8, enemy.w + 12, enemy.h + 10, enemy.facing < 0);
+  if (def.tint) {
+    ctx.filter = def.tint;
   }
+  drawSprite(
+    ctx,
+    img,
+    enemy.x - def.padX,
+    enemy.y - def.padY,
+    enemy.w + def.padX * 2,
+    enemy.h + def.padY * 2,
+    enemy.facing < 0
+  );
   ctx.restore();
+  if (player && player.huntTarget === enemy) {
+    ctx.strokeStyle = "#e8c57a";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(enemy.x - 4, enemy.y - 6, enemy.w + 8, enemy.h + 10);
+  }
   if (enemy.hp < enemy.maxHp) {
     drawMeter(enemy.x, enemy.y - 10, enemy.w, 5, enemy.hp / enemy.maxHp, "#e85d4c", "");
   }
@@ -1069,9 +1513,14 @@ function draw() {
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   if (state === "select") {
     ctx.drawImage(sprites.townBackground, 0, 0, VIEW_W, VIEW_H);
-    drawCharacterSelect(selectGender);
+    drawCharacterSelect(selectGender, selectName, selectHint);
+    syncGameMenu();
     return;
   }
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, VIEW_W, playH());
+  ctx.clip();
   drawBackground();
   ctx.save();
   ctx.translate(-Math.round(camX), -Math.round(camY));
@@ -1095,6 +1544,8 @@ function draw() {
   drawWalkMarker(ctx, player);
   ctx.restore();
   drawHud();
+  ctx.restore();
+  syncGameMenu();
 }
 
 function loop(now) {

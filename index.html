@@ -4,22 +4,110 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fox Hollow</title>
-    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/style.css?v=23" />
   </head>
   <body>
     <div id="wrap">
-      <canvas id="game" width="960" height="540"></canvas>
-      <p class="hint">
-        Progress saves automatically. Click a shop, chest, or the wilds path to walk there ·
-        Arrows / WASD to move · Up / Down on ropes to climb · Space to swing your sword ·
-        Q to hang a rope · I for inventory
-      </p>
+      <div id="game-frame">
+        <canvas id="game" width="960" height="540"></canvas>
+        <div id="menu-overlay" hidden>
+          <div class="menu-card" id="menu-card"></div>
+        </div>
+        <div id="game-menu" hidden>
+          <div class="menu-id">
+            <div class="menu-name" id="menu-name">Adventurer</div>
+            <div class="menu-place" id="menu-place">Town</div>
+            <div class="menu-level">
+              <svg class="menu-anvil" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="#c9c9c9"
+                  d="M4 4h16v3H4zm2 5h12l1 3H5zm3 5h6v6H9zm-5 6h16v2H4z"
+                />
+              </svg>
+              LV. <span id="menu-level">1</span>
+            </div>
+          </div>
+          <div class="menu-bars">
+            <div class="menu-bar-row">
+              <span class="menu-bar-label">HP</span>
+              <div class="menu-bar hp">
+                <div class="menu-bar-fill" id="menu-hp-fill"></div>
+                <span class="menu-bar-text" id="menu-hp-text">0/0</span>
+              </div>
+            </div>
+            <div class="menu-bar-row">
+              <span class="menu-bar-label">BAG</span>
+              <div class="menu-bar bag">
+                <div class="menu-bar-fill" id="menu-bag-fill"></div>
+                <span class="menu-bar-text" id="menu-bag-text">0/0</span>
+              </div>
+            </div>
+            <div class="menu-bar-row">
+              <span class="menu-bar-label">XP</span>
+              <div class="menu-bar xp">
+                <div class="menu-bar-fill" id="menu-xp-fill"></div>
+                <span class="menu-bar-text" id="menu-xp-text">0/0</span>
+              </div>
+            </div>
+          </div>
+          <div class="menu-coins">
+            <img src="assets/sprites/coin-1.png" alt="" />
+            <span id="menu-coins">0</span>
+          </div>
+          <div class="menu-btns">
+            <button type="button" class="menu-btn" data-menu="auto">
+              <span class="menu-badge" id="auto-badge">OFF</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="6" r="3" fill="#f48fb1" />
+                <path
+                  fill="#f48fb1"
+                  d="M8 10h8l1.2 9H6.8z"
+                />
+              </svg>
+              <span>AUTO</span>
+            </button>
+            <button type="button" class="menu-btn" data-menu="items">
+              <img src="assets/sprites/ui-backpack.png" alt="" />
+              <span>ITEMS</span>
+            </button>
+            <button type="button" class="menu-btn" data-menu="equip">
+              <img src="assets/sprites/item-sword.png" alt="" />
+              <span>EQUIP</span>
+            </button>
+            <button type="button" class="menu-btn" data-menu="map">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="#d7c48a"
+                  d="M4 5l5-2 6 2 5-2v16l-5 2-6-2-5 2V5zm5 1.2v12.3l6 2V8.2z"
+                />
+                <circle cx="14.5" cy="10" r="1.4" fill="#6b4a32" />
+              </svg>
+              <span>MAP</span>
+            </button>
+            <button type="button" class="menu-btn" data-menu="help">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="#7b5ea7" d="M6 3h11a2 2 0 012 2v14l-3-2H6a2 2 0 01-2-2V5a2 2 0 012-2z" />
+                <path fill="#f4efe6" d="M9 8h8v1.6H9zm0 3h6v1.6H9z" />
+              </svg>
+              <span>HELP</span>
+            </button>
+            <button type="button" class="menu-btn" data-menu="menu">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="#e8e8e8" d="M5 6h14v2H5zm0 5h14v2H5zm0 5h10v2H5z" />
+                <circle cx="19" cy="17" r="3" fill="#3d8f5a" />
+              </svg>
+              <span>MENU</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <p class="hint">Progress saves automatically. Use the bar at the bottom to open items, the map, and help.</p>
     </div>
-    <script src="js/anim.js?v=18"></script>
-    <script src="js/inventory.js?v=18"></script>
-    <script src="js/world.js?v=18"></script>
-    <script src="js/player.js?v=18"></script>
-    <script src="js/ui.js?v=18"></script>
-    <script src="js/game.js?v=18"></script>
+    <script src="js/anim.js?v=23"></script>
+    <script src="js/inventory.js?v=23"></script>
+    <script src="js/world.js?v=23"></script>
+    <script src="js/player.js?v=23"></script>
+    <script src="js/ui.js?v=23"></script>
+    <script src="js/game.js?v=23"></script>
   </body>
 </html>

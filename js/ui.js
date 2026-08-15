@@ -41,6 +41,11 @@ function foxClips() {
   };
 }
 
+function enemyClips(kind) {
+  const def = ENEMY_DEFS[kind] || ENEMY_DEFS.slime;
+  return def.clips === "fox" ? foxClips() : slimeClips();
+}
+
 function coinClips() {
   return {
     spin: {
@@ -59,48 +64,142 @@ function drawPanel(x, y, w, h) {
   ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
 }
 
-function characterSelectCards() {
-  return [
-    { gender: "male", label: "Male", img: sprites.maleIdle1, x: VIEW_W / 2 - 250, y: 140, w: 200, h: 300 },
-    { gender: "female", label: "Female", img: sprites.femaleIdle1, x: VIEW_W / 2 + 50, y: 140, w: 200, h: 300 },
-  ];
+function inRect(mx, my, box) {
+  return mx >= box.x && mx <= box.x + box.w && my >= box.y && my <= box.y + box.h;
+}
+
+function characterSelectLayout() {
+  const panelW = 560;
+  const panelH = 430;
+  const panelX = (VIEW_W - panelW) / 2;
+  const panelY = (VIEW_H - panelH) / 2;
+  const nameBox = { x: panelX + 40, y: panelY + 96, w: panelW - 80, h: 42 };
+  const cardW = 210;
+  const cardH = 168;
+  const cardY = panelY + 168;
+  return {
+    panelX: panelX,
+    panelY: panelY,
+    panelW: panelW,
+    panelH: panelH,
+    nameBox: nameBox,
+    cards: [
+      {
+        gender: "male",
+        label: "Male",
+        img: sprites.maleIdle1,
+        x: panelX + 50,
+        y: cardY,
+        w: cardW,
+        h: cardH,
+      },
+      {
+        gender: "female",
+        label: "Female",
+        img: sprites.femaleIdle1,
+        x: panelX + panelW - 50 - cardW,
+        y: cardY,
+        w: cardW,
+        h: cardH,
+      },
+    ],
+    begin: {
+      x: panelX + (panelW - 220) / 2,
+      y: panelY + panelH - 62,
+      w: 220,
+      h: 44,
+    },
+  };
 }
 
 function hitCharacterSelect(mx, my) {
-  const cards = characterSelectCards();
-  for (let i = 0; i < cards.length; i += 1) {
-    const card = cards[i];
-    if (mx >= card.x && mx <= card.x + card.w && my >= card.y && my <= card.y + card.h) {
-      return card.gender;
+  const layout = characterSelectLayout();
+  if (inRect(mx, my, layout.begin)) {
+    return { kind: "begin" };
+  }
+  if (inRect(mx, my, layout.nameBox)) {
+    return { kind: "name" };
+  }
+  for (let i = 0; i < layout.cards.length; i += 1) {
+    const card = layout.cards[i];
+    if (inRect(mx, my, card)) {
+      return { kind: "gender", gender: card.gender };
     }
   }
   return null;
 }
 
-function drawCharacterSelect(choice) {
-  ctx.fillStyle = "rgba(12, 16, 24, 0.55)";
+function drawCharacterSelect(choice, name, hint) {
+  ctx.fillStyle = "rgba(12, 16, 24, 0.62)";
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  const layout = characterSelectLayout();
+  drawPanel(layout.panelX, layout.panelY, layout.panelW, layout.panelH);
+
   ctx.textAlign = "center";
   ctx.fillStyle = "#fff8e8";
-  ctx.font = "36px Trebuchet MS, sans-serif";
-  ctx.fillText("Choose your adventurer", VIEW_W / 2, 70);
-  ctx.font = "16px Trebuchet MS, sans-serif";
-  ctx.fillText("Click a hero to start · Left / Right to look · Enter or Space to confirm", VIEW_W / 2, 104);
+  ctx.font = "28px Trebuchet MS, sans-serif";
+  ctx.fillText("Create your adventurer", layout.panelX + layout.panelW / 2, layout.panelY + 42);
+  ctx.font = "14px Trebuchet MS, sans-serif";
+  ctx.fillStyle = "#c9a06a";
+  ctx.fillText("Name your hero, pick a look, then begin", layout.panelX + layout.panelW / 2, layout.panelY + 68);
 
-  characterSelectCards().forEach((card) => {
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#e8c57a";
+  ctx.font = "14px Trebuchet MS, sans-serif";
+  ctx.fillText("Name", layout.nameBox.x, layout.nameBox.y - 8);
+  ctx.fillStyle = "rgba(10, 12, 18, 0.88)";
+  ctx.fillRect(layout.nameBox.x, layout.nameBox.y, layout.nameBox.w, layout.nameBox.h);
+  ctx.strokeStyle = "#e8c57a";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(layout.nameBox.x, layout.nameBox.y, layout.nameBox.w, layout.nameBox.h);
+  ctx.fillStyle = "#fff8e8";
+  ctx.font = "20px Trebuchet MS, sans-serif";
+  const shown = name || "";
+  const textX = layout.nameBox.x + 12;
+  const textY = layout.nameBox.y + 28;
+  if (!shown) {
+    ctx.fillStyle = "rgba(255, 248, 232, 0.35)";
+    ctx.fillText("Type a name...", textX, textY);
+    ctx.fillStyle = "#fff8e8";
+  } else {
+    ctx.fillText(shown, textX, textY);
+  }
+  if (Math.floor(performance.now() / 530) % 2 === 0) {
+    const caretX = textX + ctx.measureText(shown).width + 1;
+    ctx.fillRect(caretX, layout.nameBox.y + 10, 2, layout.nameBox.h - 20);
+  }
+
+  ctx.textAlign = "center";
+  layout.cards.forEach((card) => {
     const selected = choice === card.gender;
-    ctx.fillStyle = selected ? "rgba(232, 197, 122, 0.22)" : "rgba(18, 22, 30, 0.8)";
+    ctx.fillStyle = selected ? "rgba(232, 197, 122, 0.22)" : "rgba(10, 12, 18, 0.72)";
     ctx.fillRect(card.x, card.y, card.w, card.h);
     ctx.strokeStyle = selected ? "#e8c57a" : "#6a6258";
-    ctx.lineWidth = selected ? 4 : 2;
+    ctx.lineWidth = selected ? 3 : 2;
     ctx.strokeRect(card.x, card.y, card.w, card.h);
     if (card.img) {
-      ctx.drawImage(card.img, card.x + 24, card.y + 20, 152, 200);
+      ctx.drawImage(card.img, card.x + 45, card.y + 8, 120, 118);
     }
     ctx.fillStyle = "#fff8e8";
-    ctx.font = "22px Trebuchet MS, sans-serif";
-    ctx.fillText(card.label, card.x + card.w / 2, card.y + card.h - 40);
+    ctx.font = "18px Trebuchet MS, sans-serif";
+    ctx.fillText(card.label, card.x + card.w / 2, card.y + card.h - 16);
   });
+
+  const ready = !!sanitizeHeroName(name);
+  ctx.fillStyle = ready ? "rgba(232, 197, 122, 0.28)" : "rgba(18, 22, 30, 0.7)";
+  ctx.fillRect(layout.begin.x, layout.begin.y, layout.begin.w, layout.begin.h);
+  ctx.strokeStyle = ready ? "#e8c57a" : "#6a6258";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(layout.begin.x, layout.begin.y, layout.begin.w, layout.begin.h);
+  ctx.fillStyle = ready ? "#fff8e8" : "#8a8378";
+  ctx.font = "20px Trebuchet MS, sans-serif";
+  ctx.fillText("Begin", layout.begin.x + layout.begin.w / 2, layout.begin.y + 30);
+
+  if (hint) {
+    ctx.fillStyle = "#e85d4c";
+    ctx.font = "13px Trebuchet MS, sans-serif";
+    ctx.fillText(hint, layout.panelX + layout.panelW / 2, layout.begin.y - 12);
+  }
   ctx.textAlign = "left";
 }
 
@@ -414,7 +513,7 @@ function drawStatsPanel(layout) {
     ctx.drawImage(pose, innerX + 22, portraitY + 4, innerW - 44, portraitH - 8);
   }
   ctx.textAlign = "center";
-  drawOutlineText(stats.title + " Adventurer", layout.statsX + layout.statsW / 2, portraitY + portraitH + 20, 13);
+  drawOutlineText(stats.title, layout.statsX + layout.statsW / 2, portraitY + portraitH + 20, 13);
   ctx.textAlign = "left";
   const rowY = portraitY + portraitH + 42;
   stats.rows.forEach((row, index) => {
@@ -640,19 +739,20 @@ function leftSlotHits(inv, layout) {
 function drawInteractHint(spot) {
   let text = "";
   if (spot) {
-    const action = spot.kind === "exit" ? "head to the Wilds" : "open";
+    const action = spot.kind === "exit" ? "head to the " + (spot.label || "path").replace("Path to the ", "") : "open";
     text = "Press E to " + action + "  ·  " + spot.label;
-  } else if (world && world.mapId === "wilds") {
-    text = "Space swing sword  ·  Up/Down climb  ·  Q hang rope";
+  } else if (world && !isTownMap(world.mapId)) {
+    text = "Click a monster to attack  ·  AUTO hunts  ·  Space to swing";
   }
   if (!text) {
     return;
   }
+  const hintY = VIEW_H - MENU_H - 22;
   ctx.fillStyle = "rgba(20, 24, 32, 0.55)";
-  ctx.fillRect(VIEW_W / 2 - 250, VIEW_H - 58, 500, 36);
+  ctx.fillRect(VIEW_W / 2 - 250, hintY - 24, 500, 36);
   ctx.fillStyle = "#fff8e8";
   ctx.textAlign = "center";
   ctx.font = "15px Trebuchet MS, sans-serif";
-  ctx.fillText(text, VIEW_W / 2, VIEW_H - 34);
+  ctx.fillText(text, VIEW_W / 2, hintY);
   ctx.textAlign = "left";
 }

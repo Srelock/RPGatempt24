@@ -145,7 +145,7 @@ function characterStats() {
   const next = xpToNext(level);
   const xp = level >= 20 ? next : Math.max(0, Math.floor(Number(save.xp) || 0));
   return {
-    title: save.gender === "female" ? "Female" : "Male",
+    title: save.name || (save.gender === "female" ? "Female" : "Male"),
     hp: hp,
     maxHp: maxHp,
     rows: [
@@ -240,6 +240,15 @@ function emptyGrid(size) {
 }
 
 const SAVE_KEY = "foxhollow-autosave";
+const HERO_NAME_MAX = 16;
+const HERO_NAME_CHAR = /^[A-Za-z0-9 '\-]$/;
+
+function sanitizeHeroName(raw) {
+  if (typeof raw !== "string") {
+    return "";
+  }
+  return raw.replace(/\s+/g, " ").trim().slice(0, HERO_NAME_MAX);
+}
 
 function emptySave() {
   const equips = {};
@@ -258,6 +267,7 @@ function emptySave() {
   equips.weapon = { id: "sword", count: 1 };
   return {
     gender: null,
+    name: "",
     coins: 12,
     packs: packs,
     packPage: 0,
@@ -297,6 +307,7 @@ function normalizeSave(raw) {
   if (raw.gender === "male" || raw.gender === "female") {
     next.gender = raw.gender;
   }
+  next.name = sanitizeHeroName(raw.name);
   const coins = Math.floor(Number(raw.coins));
   if (Number.isFinite(coins) && coins >= 0) {
     next.coins = coins;
